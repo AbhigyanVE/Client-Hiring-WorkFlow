@@ -1,0 +1,8 @@
+
+openai
+pydantic
+python-dotenv
+fastapi
+uvicorn
+requests
+truststore>=0.10.0

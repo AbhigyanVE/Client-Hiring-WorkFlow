@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3faf8">
+  <link rel="icon" href="/favicon.ico">
+  <title>Hiring Workspace · Virtual Employee</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font: 16px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --ink: #142c28;
+      --muted: #506760;
+      --teal: #007565;
+      --dark: #005e51;
+      --accent: #00bfa5;
+      --mint: #e5f8f3;
+      --wash: #f3faf8;
+      --line: #d7e7e2;
+      --danger: #b42318;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0; color: var(--ink); background: var(--wash);
+      height: 100vh; height: 100dvh; overflow: hidden;
+      display: grid; grid-template-rows: auto minmax(0, 1fr);
+    }
+    h1, h2, h3, h4, p { margin: 0; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: .52; }
+    :focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+    svg { width: 1.2em; height: 1.2em; flex: none; vertical-align: middle; }
+    .symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap;
+    }
+    .topbar {
+      min-height: 68px; padding: 8px clamp(14px, 3.3vw, 52px);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      border-bottom: 1px solid var(--line); background: white;
+    }
+    .brand, .top-right { display: flex; align-items: center; gap: 12px; }
+    .brand img { width: 45px; height: 45px; object-fit: contain; }
+    .brand strong, .brand small { display: block; line-height: 1.2; }
+    .brand small { color: var(--muted); margin-top: 4px; font-size: .75rem; }
+    .version { color: #748781; font-size: .64rem; white-space: nowrap; }
+    .badge, .draft, .best {
+      color: var(--dark); background: var(--mint); border-radius: 99px;
+      padding: 5px 9px; font-size: .66rem; font-weight: 800; line-height: 1.35;
+    }
+    .badge { text-transform: uppercase; letter-spacing: .08em; }
+    .badge::before { content: "●"; color: var(--accent); margin-right: 6px; }
+
+    .workspace {
+      display: grid; min-height: 0; overflow: hidden;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: minmax(0, 1fr);
+      grid-template-areas: "requirements jd";
+    }
+    .workspace.results { grid-template-areas: "jd matches"; }
+    .pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+    .requirements { grid-area: requirements; background: white; border-right: 1px solid var(--line); }
+    .jd-pane { grid-area: jd; background: radial-gradient(ellipse at 100% 0%, #ddf6ee, transparent 66%), var(--wash); }
+    .results .jd-pane { border-right: 1px solid var(--line); }
+    .matches { grid-area: matches; display: flex; flex-direction: column; overflow: hidden; background: var(--wash); }
+    .matches-scroll { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; }
+    .pane-inner {
+      max-width: 810px; margin: 0 auto;
+      padding: clamp(23px, 5.8vh, 65px) clamp(17px, 4.8vw, 80px);
+    }
+    .step {
+      display: flex; align-items: center; gap: 9px; margin-bottom: 17px;
+      color: var(--dark); font-size: .7rem; font-weight: 800; letter-spacing: .12em;
+    }
+    .step span { padding: 5px 8px; border-radius: 8px; background: var(--mint); letter-spacing: 0; }
+    h1 { font-size: clamp(2rem, 4.5vw, 4.25rem); line-height: 1.01; letter-spacing: -.062em; }
+    h1 span { color: var(--teal); }
+    h2 { font-size: clamp(1.7rem, 3.35vw, 3.25rem); line-height: 1.08; letter-spacing: -.052em; }
+    .intro { max-width: 48ch; margin-top: 12px; color: var(--muted); }
+    form { margin-top: 24px; }
+    label { display: block; margin-bottom: 7px; font-size: .9rem; font-weight: 700; }
+    .editor { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: #f9fdfb; }
+    .editor:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px var(--mint); }
+    textarea {
+      display: block; width: 100%; min-height: 88px; max-height: 320px;
+      padding: 13px 15px 6px; resize: vertical; border: 0;
+      outline: none; color: var(--ink); background: transparent;
+    }
+    textarea:focus-visible { outline: none; }
+    textarea::placeholder { color: var(--muted); }
+    .editor-foot {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 8px 13px; color: var(--muted); font-size: .72rem;
+    }
+    #count { white-space: nowrap; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .examples { margin-top: 12px; color: var(--muted); font-size: .74rem; }
+    .actions { margin-top: 18px; }
+    .small, .primary, .quiet {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      border-radius: 9px; font-weight: 700;
+    }
+    .small { padding: 6px 10px; font-size: .76rem; color: var(--dark); border: 1px solid var(--line); background: white; }
+    .small:hover:not(:disabled) { background: var(--mint); }
+    .primary {
+      min-height: 44px; padding: 8px 14px; font-size: .86rem;
+      border: 1px solid transparent; background: var(--teal); color: white;
+    }
+    .primary:hover:not(:disabled) { background: var(--dark); }
+    .quiet { border: 0; padding: 8px; background: transparent; color: var(--muted); font-size: .82rem; }
+    .quiet:hover:not(:disabled) { text-decoration: underline; }
+    .error {
+      margin-top: 10px; padding: 9px 12px; border-radius: 8px;
+      color: var(--danger); background: #fff1ee; font-size: .85rem;
+    }
+
+    .paper, .match-stack {
+      margin-top: 20px; border: 1px solid var(--line); border-radius: 18px;
+      background: white; box-shadow: 0 12px 32px #12463c0c;
+    }
+    .empty {
+      display: grid; place-items: center; align-content: center; gap: 7px;
+      min-height: clamp(200px, 41vh, 430px); padding: 18px; text-align: center;
+    }
+    .doc-icon {
+      display: grid; place-items: center; width: 58px; height: 66px; margin-bottom: 9px;
+      transform: rotate(-8deg); border-radius: 12px; color: var(--teal);
+      background: var(--mint); border: 1px solid #bde5db;
+    }
+    .doc-icon svg { width: 34px; height: 34px; }
+    [aria-busy="true"] .doc-icon { animation: breathe .8s alternate infinite ease-in-out; }
+    @keyframes breathe { to { opacity: .55; transform: rotate(5deg) scale(.92); } }
+    .empty p { color: var(--muted); font-size: .86rem; max-width: 34ch; }
+    .result { padding: clamp(14px, 2.65vw, 32px); }
+    .result-bar { justify-content: space-between; margin-bottom: 13px; }
+    .draft { border-radius: 5px; letter-spacing: .1em; }
+    #jd { overflow-wrap: anywhere; }
+    .jd-title { font-size: clamp(1.32rem, 2.7vw, 2.15rem); line-height: 1.15; letter-spacing: -.035em; }
+    .meta, .designation, .candidate-meta { margin-top: 5px; color: var(--muted); font-size: .8rem; }
+    .jd-section { margin-top: 16px; padding-top: 11px; border-top: 1px solid var(--line); }
+    .jd-section h4 { margin-bottom: 6px; font-size: .87rem; }
+    .jd-section p, .jd-section li { color: #3f5850; font-size: .9rem; }
+    .jd-section ul { margin: 0; padding-left: 19px; }
+    .jd-section li + li { margin-top: 4px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chips span { padding: 3px 8px; border-radius: 6px; background: var(--mint); color: var(--dark); font-size: .77rem; }
+
+    .match-stack { padding: clamp(10px, 1.6vw, 19px); }
+    .match-heading { display: flex; align-items: center; gap: 9px; }
+    .match-heading svg { color: var(--teal); }
+    #cards { display: grid; gap: 10px; }
+    .card {
+      padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: #fff;
+      display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px;
+      transition: border-color .16s, background .16s, box-shadow .16s;
+    }
+    .card.selected { background: #f5fcf9; border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+    .avatar {
+      position: relative; display: grid; place-items: center; overflow: hidden;
+      width: clamp(41px, 5vw, 61px); aspect-ratio: 1; border-radius: 50%;
+      color: var(--dark); background: var(--mint); font-weight: 800; font-size: .87rem;
+    }
+    .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .candidate-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 5px 9px; }
+    .candidate-head h3 { font-size: 1.02rem; line-height: 1.25; overflow-wrap: anywhere; }
+    .best { white-space: nowrap; }
+    .candidate-meta { overflow-wrap: anywhere; }
+    .candidate-bottom { margin-top: 8px; justify-content: space-between; }
+    .stars { color: #9b5400; font-size: .79rem; }
+    .rate { white-space: nowrap; font-size: .88rem; }
+    .dummy { color: var(--danger); font-weight: 800; }
+    .select { min-height: 33px; }
+    .select[aria-pressed="true"] { background: var(--mint); border-color: var(--teal); }
+    .availability {
+      display: flex; align-items: flex-start; gap: 8px;
+      margin-top: 13px; padding: 10px; background: var(--mint); color: var(--dark);
+      border-radius: 9px; font-size: .76rem;
+    }
+    .notice { color: var(--muted); font-size: .85rem; }
+    .fine { margin-top: 8px; color: var(--muted); font-size: .74rem; }
+    .match-footer {
+      flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+      padding: 10px clamp(12px, 4.8vw, 80px); background: white; border-top: 1px solid var(--line);
+    }
+    .match-footer small { color: var(--muted); font-size: .74rem; }
+    dialog {
+      color: var(--ink); padding: 22px; background: white; border: 1px solid var(--line);
+      border-radius: 16px; width: min(440px, calc(100% - 28px));
+    }
+    dialog::backdrop { background: #1029227a; }
+    dialog h2 { font-size: 1.35rem; }
+    dialog p { margin-top: 9px; }
+    dialog ul { padding-left: 20px; }
+
+    @media (orientation: portrait) {
+      .topbar { min-height: 54px; padding-block: 5px; }
+      .brand img { width: 38px; height: 38px; }
+      .workspace {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+        grid-template-areas: "requirements" "jd";
+      }
+      .workspace.results { grid-template-areas: "jd" "matches"; }
+      .requirements, .results .jd-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .pane-inner { padding: 13px clamp(13px, 5vw, 40px); }
+      .step { margin-bottom: 7px; }
+      .desktop-break { display: none; }
+      h1 { font-size: clamp(1.55rem, 6vw, 3.4rem); }
+      h2 { font-size: clamp(1.35rem, 4.8vw, 2.5rem); }
+      .intro { margin-top: 5px; font-size: .84rem; }
+      form { margin-top: 10px; }
+      textarea { height: 84px; min-height: 70px; }
+      .actions, .examples { margin-top: 8px; }
+      .paper, .match-stack { margin-top: 10px; }
+      .empty { min-height: 155px; }
+      .doc-icon { width: 44px; height: 48px; }
+      .match-footer { padding-block: 6px; }
+      .match-footer .primary { min-height: 38px; }
+    }
+    @media (max-width: 530px) { .badge { display: none; } }
+    @media (orientation: portrait) and (max-height: 780px) { .examples { display: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-spark" viewBox="0 0 24 24">
+      <path d="M12 2.5 14.8 9.2 21.5 12l-6.7 2.8-2.8 6.7-2.8-6.7L2.5 12l6.7-2.8z"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-doc" viewBox="0 0 24 24">
+      <path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10zM13 3v7h7M8 14h8m-8 3h5"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-people" viewBox="0 0 24 24">
+      <path d="M16 21H3v-2a4 4 0 0 1 4-4h5a4 4 0 0 1 4 4zM17 4a4 4 0 0 1 0 8m1 3a4 4 0 0 1 3 4v2"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="9.5" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/>
+    </symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24">
+      <path d="M12 2 3 6v5c0 5 4 9 9 11 5-2 9-6 9-11V6zM8 12l3 3 5-6"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <img id="brand-logo" alt="" width="45" height="45" referrerpolicy="no-referrer"
+        src="https://media.licdn.com/dms/image/v2/D560BAQHfeCT9bkXTmw/company-logo_200_200/company-logo_200_200/0/1736151002324/virtual_employee_pvt__ltd_logo?e=2147483647&amp;v=beta&amp;t=sj1m8QC8Qi_tfcdCMKTlyybGuNsgwItgfv5jqzE16Nc">
+      <div><strong>Virtual Employee</strong><small>Hiring Workspace</small></div>
+    </div>
+    <div class="top-right">
+      <span class="badge">Job Description Builder</span>
+      <span class="version">version 2</span>
+    </div>
+  </header>
+
+  <main id="workspace" class="workspace">
+    <section id="requirements-pane" class="pane requirements" aria-labelledby="requirements-heading">
+      <div class="pane-inner">
+        <p class="step"><span>01</span> REQUIREMENTS</p>
+        <h1 id="requirements-heading">Who do you<br class="desktop-break"> need to hire<span>?</span></h1>
+        <p class="intro">Describe the role or the project you have in mind. You don’t need to know the job title yet.</p>
+
+        <form id="jd-form">
+          <label for="requirement">Your hiring requirements</label>
+          <div class="editor">
+            <textarea id="requirement" required maxlength="4000" rows="5" aria-describedby="hint"
+              placeholder="For example, we need someone to build a chatbot that answers questions using our help articles."></textarea>
+            <div class="editor-foot">
+              <span id="hint">Include any skills or experience that matter.</span>
+              <span id="count">0 / 4,000</span>
+            </div>
+          </div>
+          <div class="row examples">
+            <span>Try an example</span>
+            <button class="small" type="button" data-example="Hire a Python developer for backend API development.">Python developer</button>
+            <button class="small" type="button" data-example="We need a chatbot that answers customer questions using our help articles and hands off to our support team.">Support chatbot</button>
+            <button class="small" type="button" data-example="We need a WordPress developer to build a responsive services website with a contact form.">WordPress site</button>
+          </div>
+          <div class="row actions">
+            <button id="generate" class="primary" type="submit">
+              <svg aria-hidden="true"><use href="#icon-spark"/></svg>
+              <span id="generate-label">Generate job description</span>
+            </button>
+            <button id="clear" class="quiet" type="button" disabled>Clear</button>
+          </div>
+          <p id="error" class="error" role="alert" hidden></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="jd-pane" class="pane jd-pane" aria-labelledby="jd-heading">
+      <div class="pane-inner">
+        <p class="step"><span>02</span> <b id="jd-step">PREVIEW</b></p>
+        <h2 id="jd-heading" tabindex="-1">Job description</h2>
+        <p class="intro">Review your draft before sharing it with your team.</p>
+
+        <div class="paper" id="paper" aria-busy="false">
+          <div class="empty" id="empty">
+            <div class="doc-icon" aria-hidden="true"><svg><use href="#icon-doc"/></svg></div>
+            <h3 id="empty-title">Your draft will appear here</h3>
+            <p id="empty-copy">Add your requirements to generate a role overview, responsibilities, and skills.</p>
+          </div>
+          <div class="result" id="result" hidden>
+            <div class="row result-bar">
+              <span class="draft">DRAFT</span>
+              <div class="row">
+                <button type="button" class="small" id="edit">Edit requirements</button>
+                <button type="button" class="small" id="copy">Copy</button>
+                <button type="button" class="small" id="download">Download</button>
+              </div>
+            </div>
+            <div id="jd"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="matches-pane" class="pane matches" aria-labelledby="matches-heading" hidden>
+      <div id="matches-scroll" class="matches-scroll">
+        <div class="pane-inner">
+          <p class="step"><span>03</span> AVAILABLE TALENT</p>
+          <h2 id="matches-heading" class="match-heading">
+            <svg aria-hidden="true"><use href="#icon-people"/></svg> Top Matches
+          </h2>
+          <p class="intro">Select the people you’d like to try working with.</p>
+          <div class="match-stack">
+            <p id="match-notice" class="notice" hidden></p>
+            <div id="cards"></div>
+            <div id="match-disclaimer" hidden>
+              <div class="availability">
+                <svg aria-hidden="true"><use href="#icon-shield"/></svg>
+                <span>Matched against the skills and available hours reported by Virtual Employee’s bench API. Availability isn’t a reservation.</span>
+              </div>
+              <p class="fine"><span class="dummy">_x</span> marks demo-only rates and reviews, not actual quotes or feedback.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="match-footer" id="trial-footer" hidden>
+        <small>Demo only</small>
+        <button id="trial" class="primary" type="button" disabled>Start free trial (0)</button>
+      </footer>
+    </section>
+  </main>
+
+  <div id="status" class="sr-only" role="status"></div>
+  <dialog id="trial-dialog" aria-labelledby="trial-title">
+    <h2 id="trial-title">Free trial preview</h2>
+    <p id="trial-summary"></p>
+    <ul id="trial-people"></ul>
+    <p class="notice">This is a demo. No booking was made and no request was sent.</p>
+    <form method="dialog"><button type="submit" class="primary">Close</button></form>
+  </dialog>
+
+  <script>
+    "use strict";
+
+    const $ = id => document.getElementById(id);
+    const workspace = $("workspace");
+    const input = $("requirement");
+    const jdPane = $("jd-pane");
+    const matchesPane = $("matches-pane");
+    const examples = Array.from(document.querySelectorAll("[data-example]"));
+    const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    const selected = new Set();
+    let currentJD = null;
+    let currentMatches = [];
+    let busy = false;
+    let copyTimer;
+
+    function node(tag, text = "", className = "") {
+      const el = document.createElement(tag);
+      el.textContent = text;
+      if (className) el.className = className;
+      return el;
+    }
+
+    const logo = $("brand-logo");
+    function logoFallback() {
+      if (logo.getAttribute("src") !== "/favicon.ico") logo.src = "/favicon.ico";
+    }
+    logo.addEventListener("error", logoFallback);
+    if (logo.complete && !logo.naturalWidth) logoFallback();
+
+    function showError(message = "") {
+      $("error").textContent = message;
+      $("error").hidden = !message;
+    }
+
+    function syncInput() {
+      $("count").textContent = `${input.value.length.toLocaleString("en-US")} / 4,000`;
+      $("clear").disabled = busy || (!input.value && !currentJD);
+    }
+
+    function setBusy(value) {
+      busy = value;
+      $("paper").setAttribute("aria-busy", String(value));
+      $("generate").disabled = value;
+      input.readOnly = value;
+      examples.forEach(button => { button.disabled = value; });
+      $("generate-label").textContent = value ? "Creating your draft…" : "Generate job description";
+      $("empty-title").textContent = value ? "Drafting your job description…" : "Your draft will appear here";
+      $("empty-copy").textContent = value
+        ? "Preparing the JD and checking the available talent pool."
+        : "Add your requirements to generate a role overview, responsibilities, and skills.";
+      syncInput();
+    }
+
+    function metadata(jd) {
+      const estimate = jd.timeline?.total_realistic_timeline;
+      return [
+        jd.service_category,
+        jd.experience_tier,
+        estimate && `Estimated timeline: ${estimate}`,
+      ].filter(Boolean);
+    }
+
+    function sections(jd) {
+      return [
+        ["About the role", jd.about_the_role, "text"],
+        ["Key responsibilities", jd.key_responsibilities, "list"],
+        ["Required skills", jd.required_skills, "chips"],
+        ["Suggested skills", jd.inferred_skills, "chips"],
+      ].filter(([, content]) => content?.length);
+    }
+
+    function renderJD(jd) {
+      const target = $("jd");
+      target.replaceChildren(
+        node("h3", jd.role_title, "jd-title"),
+        node("p", metadata(jd).join("  ·  "), "meta")
+      );
+
+      for (const [label, content, type] of sections(jd)) {
+        const section = node("section", "", "jd-section");
+        section.append(node("h4", label));
+        if (type === "text") {
+          section.append(node("p", content));
+        } else {
+          const isList = type === "list";
+          const items = node(isList ? "ul" : "div", "", isList ? "" : "chips");
+          content.forEach(value => items.append(node(isList ? "li" : "span", value)));
+          section.append(items);
+        }
+        target.append(section);
+      }
+    }
+
+    function exportText() {
+      const lines = [currentJD.role_title, "Draft job description", ...metadata(currentJD)];
+      for (const [label, content, type] of sections(currentJD)) {
+        const text = type === "list" ? content.map(value => `- ${value}`).join("\n")
+          : type === "chips" ? content.join(", ") : content;
+        lines.push("", label, text);
+      }
+      return lines.join("\n") + "\n";
+    }
+
+    function markDummy(element) {
+      const suffix = node("span", "_x", "dummy");
+      suffix.title = "Demo value, not actual data";
+      suffix.setAttribute("aria-hidden", "true");
+      element.append(suffix, node("span", " (demo value)", "sr-only"));
+    }
+
+    function updateTrial() {
+      const count = selected.size;
+      $("trial").textContent = `Start free trial (${count})`;
+      $("trial").disabled = count === 0;
+    }
+
+    function renderCard(person, index) {
+      const card = node("article", "", "card");
+      const initials = person.name.trim().split(/\s+/).slice(0, 2)
+        .map(word => word.charAt(0).toUpperCase()).join("");
+      const avatar = node("div", initials, "avatar");
+      avatar.setAttribute("aria-hidden", "true");
+      if (person.image) {
+        const img = node("img");
+        img.alt = "";
+        img.loading = "lazy";
+        img.referrerPolicy = "no-referrer";
+        img.addEventListener("error", () => img.remove(), { once: true });
+        img.src = person.image;
+        avatar.append(img);
+      }
+
+      const body = node("div");
+      const heading = node("div", "", "candidate-head");
+      heading.append(node("h3", person.name));
+      if (index === 0) heading.append(node("span", "Best Match", "best"));
+      body.append(heading);
+      if (person.designation) body.append(node("p", person.designation, "designation"));
+
+      const details = [
+        person.experience_years == null ? null : `${person.experience_years} yrs exp`,
+        (person.matched_skills || []).join(" | "),
+      ].filter(Boolean);
+      if (details.length) body.append(node("p", details.join("  ·  "), "candidate-meta"));
+
+      const availability = [
+        `${person.bench_hours} bench hrs reported`,
+        person.profile_verified && "Profile verified",
+      ].filter(Boolean);
+      body.append(node("p", availability.join("  ·  "), "candidate-meta"));
+
+      const bottom = node("div", "", "row candidate-bottom");
+      const review = node("span", "★ 4.8 (42 reviews)", "stars");
+      const rate = node("strong", "$50/hr", "rate");
+      markDummy(review);
+      markDummy(rate);
+
+      const button = node("button", "Select", "small select");
+      button.type = "button";
+      button.setAttribute("aria-label", `Select ${person.name}`);
+      button.setAttribute("aria-pressed", "false");
+      button.addEventListener("click", () => {
+        const isSelected = !selected.has(person.id);
+        if (isSelected) selected.add(person.id);
+        else selected.delete(person.id);
+        card.classList.toggle("selected", isSelected);
+        button.textContent = isSelected ? "✓ Selected" : "Select";
+        button.setAttribute("aria-pressed", String(isSelected));
+        updateTrial();
+        $("status").textContent = `${selected.size} selected.`;
+      });
+
+      bottom.append(review, rate, button);
+      body.append(bottom);
+      card.append(avatar, body);
+      return card;
+    }
+
+    function renderMatches(matches, matchStatus) {
+      selected.clear();
+      currentMatches = matches;
+      const hasMatches = matches.length > 0;
+      $("cards").replaceChildren(...matches.map(renderCard));
+      $("match-disclaimer").hidden = !hasMatches;
+      $("trial-footer").hidden = !hasMatches;
+      $("match-notice").hidden = hasMatches;
+      $("match-notice").textContent = matchStatus === "no_matches"
+        ? "No available profiles matched these requirements. Contact the Virtual Employee team for more options."
+        : "We couldn’t verify availability right now. Your JD is ready. Edit requirements and generate again to retry.";
+      updateTrial();
+    }
+
+    function showResults(revealMatches) {
+      const oldPosition = jdPane.getBoundingClientRect();
+      $("requirements-pane").hidden = true;
+      matchesPane.hidden = false;
+      workspace.classList.add("results");
+      $("jd-step").textContent = "DRAFT";
+      $("empty").hidden = true;
+      $("result").hidden = false;
+      jdPane.scrollTop = 0;
+      $("matches-scroll").scrollTop = 0;
+
+      if (!reduceMotion.matches && typeof jdPane.animate === "function") {
+        const newPosition = jdPane.getBoundingClientRect();
+        const x = oldPosition.left - newPosition.left;
+        const y = oldPosition.top - newPosition.top;
+        const options = { duration: 360, easing: "cubic-bezier(.2,.75,.2,1)" };
+
+        jdPane.animate([
+          { transform: `translate(${x}px, ${y}px)` },
+          { transform: "translate(0, 0)" },
+        ], options);
+
+        if (revealMatches) {
+          const portrait = matchMedia("(orientation: portrait)").matches;
+          const hinge = portrait ? "50% 0%" : "0% 50%";
+          const angle = portrait ? "rotateX(-22deg)" : "rotateY(-34deg)";
+
+          matchesPane.animate([
+            { opacity: 0, transformOrigin: hinge, transform: `perspective(1400px) ${angle}` },
+            { opacity: 1, transformOrigin: hinge, transform: "perspective(1400px) rotate3d(0, 0, 1, 0deg)" },
+          ], {
+            duration: 460,
+            delay: 140,
+            easing: "cubic-bezier(.2,.75,.2,1)",
+            fill: "backwards",
+          });
+        }
+      }
+
+      $("jd-heading").focus({ preventScroll: true });
+    }
+
+    function showRequirements() {
+      workspace.classList.remove("results");
+      $("requirements-pane").hidden = false;
+      matchesPane.hidden = true;
+      selected.clear();
+      updateTrial();
+      $("jd-step").textContent = "PREVIEW";
+      $("empty").hidden = Boolean(currentJD);
+      $("result").hidden = !currentJD;
+      input.focus({ preventScroll: true });
+      $("requirements-pane").scrollTop = 0;
+    }
+
+    input.addEventListener("input", () => { showError(); syncInput(); });
+    examples.forEach(button => button.addEventListener("click", () => {
+      input.value = button.dataset.example;
+      showError();
+      syncInput();
+      input.focus();
+    }));
+
+    $("edit").addEventListener("click", showRequirements);
+    $("clear").addEventListener("click", () => {
+      currentJD = null;
+      currentMatches = [];
+      input.value = "";
+      $("jd").replaceChildren();
+      renderMatches([], "no_matches");
+      showRequirements();
+      showError();
+      syncInput();
+      $("status").textContent = "";
+    });
+
+    $("jd-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      if (busy) return;
+      const requirement = input.value.trim();
+      if (!requirement) {
+        showError("Enter a role or project requirement.");
+        return;
+      }
+
+      setBusy(true);
+      showError();
+      $("empty").hidden = false;
+      $("result").hidden = true;
+      $("status").textContent = "Generating job description and checking availability.";
+
+      try {
+        const response = await fetch("/api/jd", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requirement }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.jd) {
+          throw new Error(typeof payload.detail === "string"
+            ? payload.detail
+            : "Couldn’t generate your job description. Please try again.");
+        }
+
+        currentJD = payload.jd;
+        renderJD(currentJD);
+        renderMatches(Array.isArray(payload.matches) ? payload.matches : [], payload.match_status);
+        showResults(payload.match_status === "ready" && currentMatches.length > 0);
+        $("status").textContent = currentMatches.length
+          ? `Job description ready. ${currentMatches.length} matching profiles.`
+          : "Job description ready. See the Top Matches panel for availability.";
+      } catch (error) {
+        $("empty").hidden = Boolean(currentJD);
+        $("result").hidden = !currentJD;
+        showError(error instanceof TypeError
+          ? "Couldn’t reach FastAPI. Check that the server is running and try again."
+          : error.message);
+        $("error").scrollIntoView({ block: "nearest" });
+        $("status").textContent = "";
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    $("copy").addEventListener("click", async () => {
+      if (!currentJD) return;
+      clearTimeout(copyTimer);
+      try {
+        await navigator.clipboard.writeText(exportText());
+        $("copy").textContent = "Copied";
+      } catch {
+        $("copy").textContent = "Use Download";
+      }
+      copyTimer = setTimeout(() => { $("copy").textContent = "Copy"; }, 1500);
+    });
+
+    $("download").addEventListener("click", () => {
+      if (!currentJD) return;
+      const url = URL.createObjectURL(new Blob([exportText()], { type: "text/plain;charset=utf-8" }));
+      const link = node("a");
+      link.href = url;
+      link.download = "virtual-employee-job-description.txt";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    $("trial").addEventListener("click", () => {
+      const people = currentMatches.filter(person => selected.has(person.id));
+      if (!people.length) return;
+      $("trial-summary").textContent = `Selected ${people.length} ${people.length === 1 ? "person" : "people"}:`;
+      $("trial-people").replaceChildren(...people.map(person => node("li", person.name)));
+      $("trial-dialog").showModal();
+    });
+
+    syncInput();
+  </script>
+</body>
+</html>

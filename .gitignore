@@ -1,0 +1,19 @@
+# Environment secrets and backups
+.env
+.env.*
+.env-*
+.env_*
+.env~
+old.env
+old.env.*
+old.env/
+old.env.bak
+old.env.txt
+!/.env.example
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+
+/old .env
+/latest_jd_payload.json
