@@ -1,7 +1,8 @@
 from typing import List, Dict, Any, Optional
+import os
 import requests
 from modules.config import config
-
+import re
 
 class RequirementsAPIClient:
     def __init__(self):
@@ -23,6 +24,8 @@ class RequirementsAPIClient:
                 headers=self.headers,
                 timeout=15,
             )
+            if os.getenv("VE_DEBUG_API_RESPONSES", "false").strip().lower() == "true":
+                print(f"[Requirements API /skills] HTTP {resp.status_code}\n{resp.text}", flush=True)
             resp.raise_for_status()
             self._skills_cache = resp.json().get("data", [])
             return self._skills_cache
@@ -40,102 +43,136 @@ class RequirementsAPIClient:
         keywords: List[str],
         skill: Optional[str] = None,
         limit: Optional[int] = None,
+        *,
+        query: str = "",
+        exact_keyword: Optional[str] = None,
+        include_raw: bool = False,
+        raise_on_error: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Queries /requirements with up to 5 comma-separated keywords and optional skill filter."""
-        if not config.requirements_api_key or not keywords:
+        keywords = [word.strip() for word in keywords if word.strip()][:5]
+        if not config.requirements_api_key:
+            if raise_on_error:
+                raise RuntimeError("VE_REQUIREMENTS_API_KEY is not configured")
+            return []
+        if not keywords and not exact_keyword:
             return []
 
-        cleaned_keywords = [k.strip() for k in keywords if k.strip()][:5]
-        if not cleaned_keywords:
-            return []
-
-        params: Dict[str, Any] = {
-            "keyword": ",".join(cleaned_keywords),
-            "limit": min(limit or config.requirements_limit, 500),
+        params = {
+            "keyword": exact_keyword or ",".join(keywords),
+            "limit": min(500, max(1, limit or config.requirements_limit)),
         }
-        if skill:
+        if skill and not exact_keyword:
             params["skill"] = skill
 
-        try:
-            resp = requests.get(
+        def fetch(request_params):
+            response = requests.get(
                 f"{self.base_url}/requirements",
                 headers=self.headers,
-                params=params,
+                params=request_params,
                 timeout=20,
                 verify=config.verify_ssl,
+                allow_redirects=False,
             )
-            resp.raise_for_status()
-            records = resp.json().get("data", [])
-
-            # Fallback: if strict multi-keyword + skill filter returned nothing, broaden to primary keyword only
-            if not records and (skill or len(cleaned_keywords) > 1):
-                fallback_params = {
-                    "keyword": cleaned_keywords[0],
-                    "limit": params["limit"],
-                }
-                resp = requests.get(
-                    f"{self.base_url}/requirements",
-                    headers=self.headers,
-                    params=fallback_params,
-                    timeout=20,
-                    verify=config.verify_ssl,
+            if os.getenv("VE_DEBUG_API_RESPONSES", "false").strip().lower() == "true":
+                print(
+                    f"[Requirements API /requirements] HTTP {response.status_code}\n{response.text}",
+                    flush=True,
                 )
-                resp.raise_for_status()
-                records = resp.json().get("data", [])
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"Requirements API returned HTTP {response.status_code}"
+                )
+            records = response.json().get("data")
+            if not isinstance(records, list):
+                raise ValueError("Requirements API did not return a data array")
+            return records
 
-            return self._rank_and_extract_references(records)
-        except Exception as e:
-            print(f"[WARN] Requirements API request failed: {e}")
+        try:
+            records = fetch(params)
+            if not records and keywords:
+                fallback = {"keyword": keywords[0], "limit": params["limit"]}
+                if fallback != params:
+                    records = fetch(fallback)
+            return self._rank_and_extract_references(
+                records, query=query, include_raw=include_raw
+            )
+        except Exception as exc:
+            if raise_on_error:
+                raise
+            print(f"[WARN] Requirements API request failed: {type(exc).__name__}")
             return []
 
     @staticmethod
-    def _rank_and_extract_references(records: List[Dict[str, Any]], max_refs: int = 5) -> List[Dict[str, Any]]:
-        """
-        Safely extracts optional text/document fields and prioritizes records
-        that have actual JD text or led to a sent proposal.
-        """
-        enriched = []
-        for rec in records:
-            text_obj = rec.get("text") or {}
-            skills_and_jd = (text_obj.get("skills_and_jd") or "").strip()
-            description = (text_obj.get("description") or "").strip()
-            client_message = (text_obj.get("client_message") or "").strip()
+    def _rank_and_extract_references(
+        records: List[Dict[str, Any]],
+        max_refs: int = 5,
+        *,
+        query: str = "",
+        include_raw: bool = False,
+    ) -> List[Dict[str, Any]]:
+        def tokens(value):
+            return set(re.findall(r"[\w+#]+", value.casefold()))
 
-            docs = rec.get("client_documents") or []
-            doc_snippets = [
-                (d.get("text") or "").strip()[:500]
-                for d in docs
-                if isinstance(d, dict) and d.get("text")
-            ]
+        ignore = {"a", "an", "the", "hire", "for", "with", "need", "and", "to"}
+        query_terms = tokens(query) - ignore
+        ranked = []
 
-            proposal_sent = bool((rec.get("proposal_sent") or {}).get("sent", False))
-
-            # Score richness so we feed the best historical examples to the LLM
-            richness = 0
-            if skills_and_jd:
-                richness += 3
-            if description:
-                richness += 2
-            if doc_snippets:
-                richness += 2
-            if proposal_sent:
-                richness += 1
-            if client_message:
-                richness += 1
-
-            if richness == 0:
+        for record in records:
+            if not isinstance(record, dict):
                 continue
 
-            enriched.append({
-                "richness": richness,
-                "skill": rec.get("skill"),
-                "sub_skill": rec.get("sub_skill"),
-                "skills_and_jd": skills_and_jd[:800],
-                "description": description[:600],
-                "client_message": client_message[:500],
-                "doc_excerpt": doc_snippets[0] if doc_snippets else "",
-                "matched_on": rec.get("matched_on") or [],
-            })
+            fields = record.get("text") or {}
+            if not isinstance(fields, dict):
+                fields = {}
 
-        enriched.sort(key=lambda x: x["richness"], reverse=True)
-        return enriched[:max_refs]
+            jd = str(fields.get("skills_and_jd") or "").strip()
+            message = str(fields.get("client_message") or "").strip()
+            docs = [
+                doc["text"].strip()
+                for doc in record.get("client_documents") or []
+                if isinstance(doc, dict)
+                and isinstance(doc.get("text"), str)
+                and doc["text"].strip()
+            ]
+            document = docs[0] if docs else ""
+            primary = jd or document or message
+            if not primary:
+                continue
+
+            skill_text = f"{record.get('skill') or ''} {record.get('sub_skill') or ''}"
+            fit = (
+                2 * len(query_terms & tokens(skill_text))
+                + 3 * len(query_terms & tokens(primary[:2200]))
+                + len(query_terms & tokens(message[:1200]))
+            )
+            richness = 3 * bool(jd) + 2 * bool(document) + bool(message)
+            reference = {
+                "ref": record.get("ref"),
+                "skill": record.get("skill"),
+                "sub_skill": record.get("sub_skill"),
+                "richness": richness,
+                "skills_and_jd": jd[:2200],
+                "client_message": message[:900] if message != jd else "",
+                "doc_excerpt": document[:1500],
+            }
+            if include_raw:
+                reference["source_record"] = record
+
+            ranked.append(
+                (fit, richness, " ".join(primary.casefold().split()), reference)
+            )
+
+        ranked.sort(key=lambda row: (-row[0], -row[1]))
+        selected, seen_text, seen_refs = [], set(), set()
+        for _, _, primary, reference in ranked:
+            ref = reference["ref"]
+            if primary in seen_text or (ref and ref in seen_refs):
+                continue
+            seen_text.add(primary)
+            if ref:
+                seen_refs.add(ref)
+            selected.append(reference)
+            if len(selected) >= max_refs:
+                break
+
+        return selected

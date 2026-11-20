@@ -9,6 +9,14 @@ from urllib.parse import urlsplit
 
 import truststore
 
+import hashlib
+import secrets
+from concurrent.futures import ThreadPoolExecutor
+from typing import Literal
+
+from fastapi import FastAPI, Header, HTTPException, Query, Response
+from modules.schemas import HumanizedJD, TimelineEstimate
+
 truststore.inject_into_ssl()
 
 import requests
@@ -53,8 +61,13 @@ def favicon():
     return Response(FAVICON, media_type="image/svg+xml")
 
 
+@lru_cache(maxsize=1)
+def bench_client():
+    return BenchAPIClient()
+
+
 def fetch_bench():
-    return BenchAPIClient().fetch_all_bench_resources(raise_on_error=True)
+    return bench_client().fetch_all_bench_resources(raise_on_error=True)
 
 # def fetch_bench():
 #     """Fetch all reported pages, or raise if the result can't be verified."""
@@ -170,7 +183,7 @@ def profile_image(row):
     return None
 
 
-def rank_candidates(parsed, jd, rows):
+def rank_candidates(parsed, jd, rows, *, edited=False):
     # Client-stated technologies are a gate. Generated tags help rank, but
     # aren't allowed to override the client's stated technologies.
     explicit = unique_skills(parsed.explicit_tech_stack)
@@ -202,9 +215,15 @@ def rank_candidates(parsed, jd, rows):
         explicit_hits = [skill for skill in explicit if has_skill(skill, haystack)]
         if len(explicit_hits) != len(explicit):
             continue
-
+        
         draft_hits = [skill for skill in draft_skills if has_skill(skill, haystack)]
-        if not explicit and not draft_hits:
+        if edited and len(draft_hits) != len(draft_skills):
+            continue
+        if not draft_hits and (draft_skills or not explicit):
+            continue
+
+        minimum_years = {"Mid-Level": 3, "Senior": 8}.get(jd.experience_tier)
+        if minimum_years is not None and (years is None or years < minimum_years):
             continue
 
         optional_hits = [skill for skill in suggested if has_skill(skill, haystack)]
@@ -222,6 +241,7 @@ def rank_candidates(parsed, jd, rows):
             "availability": availability or None,
             "profile_verified": verified,
             "matched_skills": matched[:4],
+            **demo_values(str(row["profile_id"]), years),
         }
 
         # Count each matching skill once, at its highest weight.
@@ -237,14 +257,79 @@ def rank_candidates(parsed, jd, rows):
         ranked.append((score, hours, years or 0, card))
 
     ranked.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]["id"]))
-    return [item[3] for item in ranked[:3]]
+    return [item[3] for item in ranked[:max(5, config.top_matches_limit)]]
+
+def demo_values(profile_id, years):
+    digest = hashlib.sha256(f"ve-demo:{profile_id}".encode()).digest()
+    rate = None
+    if years is not None and years >= 0:
+        if years < 3:
+            low, high = 7, 10
+        elif years <= 10:
+            low, high = 10, 16
+        else:
+            low, high = 13, 20
+        rate = low + int.from_bytes(digest[:4], "big") % (high - low + 1)
+
+    return {
+        "demo_hourly_rate": rate,
+        "demo_rating": (40 + digest[4] % 11) / 10,
+    }
+
+def public_jd(jd):
+    payload = jd.model_dump(
+        mode="json",
+        exclude={
+            "grounded_reference_count": True,
+            "timeline": {"estimated_core_weeks", "safety_buffer_weeks"},
+        },
+    )
+    payload["job_description"] = payload["about_the_role"]
+    return payload
 
 
-@app.post("/api/jd")
-def generate_jd(body: JDRequest, response: Response):
-    requirement = body.requirement.strip()
+def load_bench():
+     try:
+         return fetch_bench()
+     except Exception as exc:
+        logger.warning("Bench lookup failed: %s: %s", type(exc).__name__, exc)
+        return None
+
+def match_payload(parsed, jd, bench, *, edited=False):
+    if bench is None:
+        return {"matches": [], "match_status": "unavailable"}
+
+    matches = rank_candidates(parsed, jd, bench, edited=edited)
+    result = {
+        "matches": matches,
+        "match_status": "ready" if matches else "no_matches",
+    }
+    if not matches:
+        result["match_message"] = (
+            "No available employees match this job description right now. "
+            "Contact Virtual Employee and our team can help you find a match."
+        )
+    return result
+
+
+def source_review_allowed(token):
+    return bool(
+        config.source_review_token
+        and token
+        and secrets.compare_digest(
+            token.encode(), config.source_review_token.encode()
+        )
+    )
+
+
+def build_job_options(requirement, response, review_token=None, *, url_keyword=False):
+    requirement = requirement.strip()
     if not requirement:
         raise HTTPException(422, "Enter a role or project requirement.")
+
+    review_sources = source_review_allowed(review_token)
+    if review_token is not None and not review_sources:
+        raise HTTPException(403, "Source review is not authorized.")
 
     try:
         client = requirements_client()
@@ -252,7 +337,7 @@ def generate_jd(body: JDRequest, response: Response):
         parsed = ai.parse_client_query(requirement, client.get_skill_names())
     except Exception:
         logger.exception("Could not parse hiring requirements")
-        raise HTTPException(502, "Couldn’t process your requirements. Please try again.")
+        raise HTTPException(502, "Couldn’t process your requirements.")
 
     if not parsed.is_valid_ve_request:
         raise HTTPException(
@@ -261,38 +346,135 @@ def generate_jd(body: JDRequest, response: Response):
 
     try:
         references = client.fetch_reference_requirements(
-            keywords=parsed.search_keywords,
+            keywords=parsed.search_keywords or [requirement[:120]],
             skill=parsed.canonical_skill_filter,
+            query=requirement,
+            exact_keyword=requirement if url_keyword else None,
+            include_raw=review_sources,
+            raise_on_error=True,
         )
-        jd = ai.generate_humanized_jd(parsed, references)
-    except Exception:
-        logger.exception("Could not generate job description")
-        raise HTTPException(502, "Couldn’t generate your job description. Please try again.")
-
-    try:
-        matches = rank_candidates(parsed, jd, fetch_bench())
-        match_status = "ready" if matches else "no_matches"
     except Exception as exc:
-        upstream_response = getattr(exc, "response", None)
-        if upstream_response is not None:
-            reason = f"upstream HTTP {upstream_response.status_code}"
-        elif isinstance(exc, RuntimeError):
-            reason = str(exc)
-        else:
-            reason = type(exc).__name__
+        logger.warning("Requirements lookup failed: %s", type(exc).__name__)
+        raise HTTPException(502, "Couldn’t retrieve job requirements.") from exc
 
-        logger.warning("Bench lookup could not be completed: %s", reason)
-        matches, match_status = [], "unavailable"
+    def draft(reference):
+        safe_reference = {
+            key: value for key, value in reference.items() if key != "source_record"
+        }
+        return ai.generate_humanized_jd(parsed, [safe_reference]), reference
 
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        drafts = list(executor.map(draft, references))
+
+    bench = load_bench()
+    options, seen = [], set()
+    for jd, reference in drafts:
+        if not jd.grounded_reference_count:
+            continue
+        signature = (
+            " ".join(jd.about_the_role.casefold().split()),
+            tuple(sorted(skill.strip().casefold() for skill in jd.required_skills)),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+
+        option = {
+            "id": f"jd-{len(options) + 1}",
+            "jd": public_jd(jd),
+            **match_payload(parsed, jd, bench),
+        }
+        if review_sources:
+            option["source_record"] = reference["source_record"]
+        options.append(option)
+
+    if not options:
+        jd = drafts[0][0] if drafts else ai.generate_humanized_jd(parsed, [])
+        options.append({
+            "id": "jd-1",
+            "jd": public_jd(jd),
+            **match_payload(parsed, jd, bench),
+        })
+
+    first = options[0]
     response.headers["Cache-Control"] = "no-store"
-    return {
-        "jd": jd.model_dump(
-            mode="json",
-            exclude={
-                "grounded_reference_count": True,
-                "timeline": {"estimated_core_weeks", "safety_buffer_weeks"},
-            },
-        ),
-        "matches": matches,
-        "match_status": match_status,
+    result = {
+        "jd": first["jd"],
+        "matches": first["matches"],
+        "match_status": first["match_status"],
+        "jd_options": options,
     }
+    if "match_message" in first:
+        result["match_message"] = first["match_message"]
+    return result
+
+
+@app.post("/api/jd")
+def generate_jd(
+    body: JDRequest,
+    response: Response,
+    x_source_review_token: str | None = Header(default=None),
+):
+    return build_job_options(body.requirement, response, x_source_review_token)
+
+
+@app.get("/api/jd")
+def generate_jd_from_keyword(
+    response: Response,
+    keyword: str = Query(min_length=1, max_length=4000),
+    x_source_review_token: str | None = Header(default=None),
+):
+    return build_job_options(
+        keyword, response, x_source_review_token, url_keyword=True
+    )
+
+
+class EditedJDRequest(BaseModel):
+    role_title: str = Field(min_length=1, max_length=200)
+    job_description: str = Field(min_length=1, max_length=4000)
+    service_category: str = Field(default="", max_length=120)
+    key_responsibilities: list[str] = Field(default_factory=list, max_length=20)
+    required_skills: list[str] = Field(default_factory=list, max_length=30)
+    inferred_skills: list[str] = Field(default_factory=list, max_length=30)
+    experience_tier: Literal[
+        "Junior", "Mid-Level", "Senior", "To be confirmed"
+    ] = "To be confirmed"
+
+
+@app.post("/api/jd/rematch")
+def rematch_edited_jd(body: EditedJDRequest, response: Response):
+    if not body.role_title.strip() or not body.job_description.strip():
+        raise HTTPException(422, "Provide a job title and description.")
+    if any(len(skill) > 100 for skill in body.required_skills + body.inferred_skills):
+        raise HTTPException(422, "Each skill must be at most 100 characters.")
+    if any(len(item) > 500 for item in body.key_responsibilities):
+        raise HTTPException(422, "Each responsibility must be at most 500 characters.")
+
+    edited_scope = "\n".join([
+        body.role_title, body.job_description, *body.key_responsibilities,
+    ])
+    parsed = AIPipeline().parse_client_query(edited_scope, [])
+    if not parsed.is_valid_ve_request:
+        raise HTTPException(
+            422, parsed.rejection_message or "Describe a remote role or project."
+        )
+
+    jd = HumanizedJD(
+        role_title=body.role_title,
+        about_the_role=body.job_description,
+        service_category=body.service_category,
+        key_responsibilities=body.key_responsibilities,
+        required_skills=unique_skills(body.required_skills) or parsed.explicit_tech_stack,
+        inferred_skills=unique_skills(body.inferred_skills + parsed.explicit_tech_stack),
+        experience_tier=body.experience_tier,
+        timeline=TimelineEstimate(
+            estimated_core_weeks=0,
+            safety_buffer_weeks=1,
+            total_realistic_timeline="To be confirmed",
+        ),
+    )
+    parsed = parsed.model_copy(
+        update={"explicit_tech_stack": [], "budget_tier": None}
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return match_payload(parsed, jd, load_bench(), edited=True)

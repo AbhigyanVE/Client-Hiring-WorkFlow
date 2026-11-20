@@ -27,11 +27,19 @@
       height: 100vh; height: 100dvh; overflow: hidden;
       display: grid; grid-template-rows: auto minmax(0, 1fr);
     }
+    body { grid-template-columns: minmax(0, 1fr) 8px; }
+    .topbar { grid-column: 1 / -1; }
+    #workspace { grid-area: 2 / 1; }
+    .source-rail {
+      grid-area: 2 / 2; position: relative; z-index: 2;
+      border-left: 1px solid var(--line); background: var(--mint);
+    }
     h1, h2, h3, h4, p { margin: 0; }
     button, textarea { font: inherit; }
     button { cursor: pointer; }
     button:disabled { cursor: default; opacity: .52; }
     :focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+    #jd-heading:focus { outline: none; }
     svg { width: 1.2em; height: 1.2em; flex: none; vertical-align: middle; }
     .symbols { position: absolute; width: 0; height: 0; overflow: hidden; }
     .sr-only {
@@ -172,7 +180,31 @@
     .candidate-bottom { margin-top: 8px; justify-content: space-between; }
     .stars { color: #9b5400; font-size: .79rem; }
     .rate { white-space: nowrap; font-size: .88rem; }
-    .dummy { color: var(--danger); font-weight: 800; }
+    .missing { color: var(--danger) !important; font-weight: 650; }
+    .matches[aria-busy="true"] .card { opacity: .7; }
+    .jd-nav { justify-content: space-between; padding: 8px 0 14px; }
+    .edit-grid { display: grid; gap: 11px; }
+    .edit-grid textarea, .edit-grid input, .edit-grid select {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px;
+      padding: 8px 10px; font: inherit; color: var(--ink); background: #f9fdfb;
+    }
+    .edit-grid textarea:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+    .folder-trigger {
+      position: absolute; top: 6px; right: 0; width: 40px; min-height: 42px;
+      padding: 6px; border-radius: 9px 0 0 9px; background: var(--mint);
+    }
+    .folder-trigger svg { width: 19px; height: 19px; }
+    .source-pane {
+      position: fixed; inset: 0 0 0 auto; margin: 0; width: min(440px, 100%);
+      height: 100%; max-height: none; max-width: 100%; border-radius: 14px 0 0 14px;
+      overflow: auto;
+    }
+    .source-pane header { justify-content: space-between; }
+    .source-pane input { width: 100%; padding: 8px; font: inherit; }
+    .source-pane details { margin-top: 12px; border: 1px solid var(--line); border-radius: 9px; padding: 9px; }
+    .source-pane summary { cursor: pointer; overflow-wrap: anywhere; }
+    .source-pane pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .76rem; }
+    @media (max-width: 530px) { .top-right { gap: 7px; } }
     .select { min-height: 33px; }
     .select[aria-pressed="true"] { background: var(--mint); border-color: var(--teal); }
     .availability {
@@ -243,6 +275,10 @@
         fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="9.5" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/>
     </symbol>
+    <symbol id="icon-folder" viewBox="0 0 24 24">
+      <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+    </symbol>
     <symbol id="icon-shield" viewBox="0 0 24 24">
       <path d="M12 2 3 6v5c0 5 4 9 9 11 5-2 9-6 9-11V6zM8 12l3 3 5-6"
         fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -257,7 +293,7 @@
     </div>
     <div class="top-right">
       <span class="badge">Job Description Builder</span>
-      <span class="version">version 2</span>
+      <span class="version">version 2.1</span>
     </div>
   </header>
 
@@ -312,12 +348,36 @@
             <div class="row result-bar">
               <span class="draft">DRAFT</span>
               <div class="row">
+                <button type="button" class="small" id="new-search">New search</button>
                 <button type="button" class="small" id="edit">Edit requirements</button>
                 <button type="button" class="small" id="copy">Copy</button>
                 <button type="button" class="small" id="download">Download</button>
               </div>
             </div>
+            <nav class="row jd-nav" id="jd-nav" aria-label="Job description options" hidden>
+              <button class="small" id="prev-jd" type="button">← Previous</button>
+              <span class="meta" id="jd-position"></span>
+              <button class="small" id="next-jd" type="button">Next →</button>
+            </nav>
             <div id="jd"></div>
+            <form id="edit-jd" hidden>
+              <div class="edit-grid">
+                <label>Job title<input id="edit-title" required maxlength="200"></label>
+                <label>Job description<textarea id="edit-description" required maxlength="4000" rows="5"></textarea></label>
+                <label>Service category<input id="edit-category" maxlength="120"></label>
+                <label>Experience level<select id="edit-tier">
+                  <option>To be confirmed</option><option>Junior</option><option>Mid-Level</option><option>Senior</option>
+                </select></label>
+                <label>Key responsibilities <span class="fine">(one per line)</span><textarea id="edit-responsibilities" rows="4"></textarea></label>
+                <label>Required skills <span class="fine">(comma-separated)</span><textarea id="edit-required" rows="2"></textarea></label>
+                <label>Suggested skills <span class="fine">(comma-separated)</span><textarea id="edit-inferred" rows="2"></textarea></label>
+              </div>
+              <div class="row actions">
+                <button class="primary" id="save-jd" type="submit">Save and refresh matches</button>
+                <button class="quiet" id="cancel-jd" type="button">Cancel</button>
+              </div>
+              <p class="error" id="edit-error" role="alert" hidden></p>
+            </form>
           </div>
         </div>
       </div>
@@ -333,31 +393,56 @@
           <p class="intro">Select the people you’d like to try working with.</p>
           <div class="match-stack">
             <p id="match-notice" class="notice" hidden></p>
+            <p id="match-contact" class="fine" hidden><a href="https://www.virtualemployee.com/" rel="noreferrer">Contact Virtual Employee</a></p>
+            <button id="retry-matches" class="small" type="button" hidden>Retry search</button>
             <div id="cards"></div>
             <div id="match-disclaimer" hidden>
               <div class="availability">
                 <svg aria-hidden="true"><use href="#icon-shield"/></svg>
                 <span>Matched against the skills and available hours reported by Virtual Employee’s bench API. Availability isn’t a reservation.</span>
               </div>
-              <p class="fine"><span class="dummy">_x</span> marks demo-only rates and reviews, not actual quotes or feedback.</p>
+              <p class="fine">Rates and ratings are illustrative, not quotes or client reviews.</p>
             </div>
           </div>
         </div>
       </div>
       <footer class="match-footer" id="trial-footer" hidden>
-        <small>Demo only</small>
-        <button id="trial" class="primary" type="button" disabled>Start free trial (0)</button>
+        <button id="trial" class="primary" type="button" disabled>Preview free trial (0)</button>
       </footer>
     </section>
   </main>
+  <aside class="source-rail" aria-label="Internal JD sources">
+    <button class="small folder-trigger" id="open-sources" type="button"
+      aria-label="Open internal JD sources" aria-haspopup="dialog" aria-controls="source-pane" title="Internal JD sources">
+      <svg aria-hidden="true"><use href="#icon-folder"/></svg>
+    </button>
+  </aside>
 
   <div id="status" class="sr-only" role="status"></div>
   <dialog id="trial-dialog" aria-labelledby="trial-title">
     <h2 id="trial-title">Free trial preview</h2>
     <p id="trial-summary"></p>
     <ul id="trial-people"></ul>
-    <p class="notice">This is a demo. No booking was made and no request was sent.</p>
+    <p class="notice">No booking was made and no request was sent.</p>
     <form method="dialog"><button type="submit" class="primary">Close</button></form>
+  </dialog>
+
+  <dialog class="source-pane" id="source-pane" aria-labelledby="source-heading">
+    <header class="row">
+      <h2 id="source-heading">JD source records</h2>
+      <button type="button" class="small" id="close-sources">Close</button>
+    </header>
+    <p class="notice">Internal review only. Your token is used for requests from this tab and is not saved.</p>
+    <form id="source-form" autocomplete="off">
+      <label for="source-token">Source review token</label>
+      <input id="source-token" type="password" required autocomplete="off" spellcheck="false">
+      <div class="row actions">
+        <button type="submit" class="small" id="apply-source-token">Use token for next search</button>
+        <button type="button" class="quiet" id="clear-sources">Clear access</button>
+      </div>
+    </form>
+    <p class="fine" id="source-status" role="status"></p>
+    <div id="source-records"></div>
   </dialog>
 
   <script>
@@ -375,6 +460,33 @@
     let currentMatches = [];
     let busy = false;
     let copyTimer;
+    let options = [];
+    let activeIndex = 0;
+    let editing = false;
+    let saving = false;
+    let sourceToken = "";
+    let lastSearch = null;
+    const pageParams = new URLSearchParams(location.search);
+    const descriptionOf = jd => jd.job_description || jd.about_the_role || "";
+
+    function clean(value) {
+      return typeof value === "string" && value.trim() ? value.trim() : "";
+    }
+
+    function requestError(payload, fallback) {
+      if (typeof payload.detail === "string") return payload.detail;
+      if (Array.isArray(payload.detail)) {
+        return payload.detail.map(item => `${item.loc?.at(-1) || "Input"}: ${item.msg}`).join("; ");
+      }
+      return fallback;
+    }
+
+    async function requestJSON(path, init, fallback) {
+      const response = await fetch(path, { ...init, cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(requestError(payload, fallback));
+      return payload;
+    }
 
     function node(tag, text = "", className = "") {
       const el = document.createElement(tag);
@@ -415,21 +527,17 @@
     }
 
     function metadata(jd) {
-      const estimate = jd.timeline?.total_realistic_timeline;
-      return [
-        jd.service_category,
-        jd.experience_tier,
-        estimate && `Estimated timeline: ${estimate}`,
-      ].filter(Boolean);
+      const tier = clean(jd.experience_tier);
+      return [jd.service_category, tier.toLowerCase() === "to be confirmed" ? "" : tier].filter(Boolean);
     }
 
     function sections(jd) {
       return [
-        ["About the role", jd.about_the_role, "text"],
+        ["Job description", descriptionOf(jd), "text"],
         ["Key responsibilities", jd.key_responsibilities, "list"],
         ["Required skills", jd.required_skills, "chips"],
         ["Suggested skills", jd.inferred_skills, "chips"],
-      ].filter(([, content]) => content?.length);
+      ].filter(([label, content]) => label === "Job description" || content?.length);
     }
 
     function renderJD(jd) {
@@ -443,7 +551,7 @@
         const section = node("section", "", "jd-section");
         section.append(node("h4", label));
         if (type === "text") {
-          section.append(node("p", content));
+          section.append(node("p", content || "Not provided", content ? "" : "missing"));
         } else {
           const isList = type === "list";
           const items = node(isList ? "ul" : "div", "", isList ? "" : "chips");
@@ -464,17 +572,10 @@
       return lines.join("\n") + "\n";
     }
 
-    function markDummy(element) {
-      const suffix = node("span", "_x", "dummy");
-      suffix.title = "Demo value, not actual data";
-      suffix.setAttribute("aria-hidden", "true");
-      element.append(suffix, node("span", " (demo value)", "sr-only"));
-    }
-
     function updateTrial() {
       const count = selected.size;
-      $("trial").textContent = `Start free trial (${count})`;
-      $("trial").disabled = count === 0;
+      $("trial").textContent = `Preview free trial (${count})`;
+      $("trial").disabled = count === 0 || editing || saving || busy;
     }
 
     function renderCard(person, index) {
@@ -498,25 +599,29 @@
       heading.append(node("h3", person.name));
       if (index === 0) heading.append(node("span", "Best Match", "best"));
       body.append(heading);
-      if (person.designation) body.append(node("p", person.designation, "designation"));
+      const designation = clean(person.designation);
+      body.append(node("p", designation || "Designation not provided", designation ? "designation" : "designation missing"));
 
-      const details = [
-        person.experience_years == null ? null : `${person.experience_years} yrs exp`,
-        (person.matched_skills || []).join(" | "),
-      ].filter(Boolean);
-      if (details.length) body.append(node("p", details.join("  ·  "), "candidate-meta"));
+      const details = node("p", "", "candidate-meta");
+      const hasYears = Number.isFinite(person.experience_years);
+      const skills = (person.matched_skills || []).join(" | ");
+      details.append(node("span", hasYears ? `${person.experience_years} yrs exp` : "Experience not provided", hasYears ? "" : "missing"), "  ·  ",
+        node("span", skills || "No matched skill tags", skills ? "" : "missing"));
+      body.append(details);
 
-      const availability = [
-        `${person.bench_hours} bench hrs reported`,
-        person.profile_verified && "Profile verified",
-      ].filter(Boolean);
-      body.append(node("p", availability.join("  ·  "), "candidate-meta"));
+      const availability = node("p", "", "candidate-meta");
+      const hasHours = Number.isFinite(person.bench_hours);
+      availability.append(node("span", hasHours ? `${person.bench_hours} bench hrs reported` : "Available hours not provided", hasHours ? "" : "missing"));
+      if (person.profile_verified) availability.append("  ·  Profile verified");
+      body.append(availability);
 
       const bottom = node("div", "", "row candidate-bottom");
-      const review = node("span", "★ 4.8 (42 reviews)", "stars");
-      const rate = node("strong", "$50/hr", "rate");
-      markDummy(review);
-      markDummy(rate);
+      const rating = person.demo_rating;
+      const hasRating = Number.isFinite(rating) && rating >= 4 && rating <= 5;
+      const review = node("span", hasRating ? `★ ${rating.toFixed(1)}` : "Rating not provided", hasRating ? "stars" : "stars missing");
+      const hourly = person.demo_hourly_rate;
+      const hasRate = Number.isFinite(hourly) && hourly > 0;
+      const rate = node("strong", hasRate ? `$${hourly}/hr` : "Rate not provided", hasRate ? "rate" : "rate missing");
 
       const button = node("button", "Select", "small select");
       button.type = "button";
@@ -539,7 +644,7 @@
       return card;
     }
 
-    function renderMatches(matches, matchStatus) {
+    function renderMatches(matches, matchStatus, message) {
       selected.clear();
       currentMatches = matches;
       const hasMatches = matches.length > 0;
@@ -547,9 +652,11 @@
       $("match-disclaimer").hidden = !hasMatches;
       $("trial-footer").hidden = !hasMatches;
       $("match-notice").hidden = hasMatches;
+      $("match-contact").hidden = hasMatches || matchStatus !== "no_matches";
+      $("retry-matches").hidden = hasMatches || matchStatus !== "unavailable";
       $("match-notice").textContent = matchStatus === "no_matches"
-        ? "No available profiles matched these requirements. Contact the Virtual Employee team for more options."
-        : "We couldn’t verify availability right now. Your JD is ready. Edit requirements and generate again to retry.";
+        ? (clean(message) || "No available profiles match this job description right now.")
+        : "We couldn’t verify availability right now. Your job description is still available.";
       updateTrial();
     }
 
@@ -595,16 +702,16 @@
       $("jd-heading").focus({ preventScroll: true });
     }
 
-    function showRequirements() {
+    function showRequirements(focus = true) {
       workspace.classList.remove("results");
       $("requirements-pane").hidden = false;
       matchesPane.hidden = true;
       selected.clear();
       updateTrial();
       $("jd-step").textContent = "PREVIEW";
-      $("empty").hidden = Boolean(currentJD);
-      $("result").hidden = !currentJD;
-      input.focus({ preventScroll: true });
+      $("empty").hidden = false;
+      $("result").hidden = true;
+      if (focus) input.focus({ preventScroll: true });
       $("requirements-pane").scrollTop = 0;
     }
 
@@ -616,65 +723,248 @@
       input.focus();
     }));
 
-    $("edit").addEventListener("click", showRequirements);
-    $("clear").addEventListener("click", () => {
+    function renderSources() {
+      const records = $("source-records");
+      records.replaceChildren();
+      options.forEach((option, index) => {
+        if (!option.source_record) return;
+        const details = node("details");
+        details.open = index === activeIndex;
+        details.append(node("summary", `JD ${index + 1} · ${option.jd.role_title}`),
+          node("pre", JSON.stringify(option.source_record, null, 2)));
+        if (option.edited) details.insertBefore(node("p", "Original source, before your edits.", "fine"), details.lastChild);
+        records.append(details);
+      });
+      $("source-status").textContent = records.children.length
+        ? `${records.children.length} source ${records.children.length === 1 ? "record" : "records"} for this search.`
+        : sourceToken ? "Token set. Run a search to request its source records."
+          : "Enter an authorized token before running a search to see its source records.";
+    }
+
+    function updateOptionControls() {
+      const locked = editing || saving || busy;
+      $("jd-nav").hidden = options.length < 2;
+      $("jd-position").textContent = `JD ${activeIndex + 1} of ${options.length}`;
+      $("prev-jd").disabled = locked || activeIndex === 0;
+      $("next-jd").disabled = locked || activeIndex >= options.length - 1;
+      for (const id of ["edit", "copy", "download", "new-search", "retry-matches", "open-sources"]) $(id).disabled = locked;
+      $("trial").disabled = locked || selected.size === 0;
+      $("cards").querySelectorAll("button").forEach(button => { button.disabled = locked; });
+      matchesPane.setAttribute("aria-busy", String(saving));
+    }
+
+    function showOption(index, scroll = false) {
+      const option = options[index];
+      if (!option) return;
+      activeIndex = index;
+      currentJD = option.jd;
+      renderJD(currentJD);
+      renderMatches(option.matches, option.match_status, option.match_message);
+      updateOptionControls();
+      renderSources();
+      if (scroll) {
+        jdPane.scrollTop = 0;
+        $("matches-scroll").scrollTop = 0;
+      }
+      const count = currentMatches.length;
+      $("status").textContent = `Job description ${index + 1} of ${options.length}. ${count ? `${count} matching profiles.` : "See Top Matches for availability."}`;
+    }
+
+    function showEditError(message = "") {
+      $("edit-error").textContent = message;
+      $("edit-error").hidden = !message;
+    }
+
+    function setEditing(value) {
+      editing = value;
+      $("jd").hidden = value;
+      $("edit-jd").hidden = !value;
+      showEditError();
+      updateOptionControls();
+    }
+
+    function beginEdit() {
+      if (!currentJD || editing || busy) return;
+      $("edit-title").value = currentJD.role_title || "";
+      $("edit-description").value = descriptionOf(currentJD);
+      $("edit-category").value = currentJD.service_category || "";
+      $("edit-tier").value = currentJD.experience_tier || "To be confirmed";
+      if (!$("edit-tier").value) $("edit-tier").value = "To be confirmed";
+      $("edit-responsibilities").value = (currentJD.key_responsibilities || []).join("\n");
+      $("edit-required").value = (currentJD.required_skills || []).join(", ");
+      $("edit-inferred").value = (currentJD.inferred_skills || []).join(", ");
+      setEditing(true);
+      $("edit-title").focus();
+    }
+
+    function returnToSearch(clearText = false, focus = true) {
+      options = [];
+      lastSearch = null;
+      activeIndex = 0;
       currentJD = null;
       currentMatches = [];
-      input.value = "";
+      if (clearText) input.value = "";
+      const page = new URL(location.href);
+      if (page.searchParams.has("keyword")) {
+        page.searchParams.delete("keyword");
+        history.replaceState(null, "", page);
+      }
+      setEditing(false);
       $("jd").replaceChildren();
       renderMatches([], "no_matches");
-      showRequirements();
+      renderSources();
+      showRequirements(focus);
       showError();
       syncInput();
       $("status").textContent = "";
+    }
+
+    $("edit").addEventListener("click", beginEdit);
+    $("cancel-jd").addEventListener("click", () => { setEditing(false); $("edit").focus(); });
+    $("new-search").addEventListener("click", () => returnToSearch());
+    $("clear").addEventListener("click", () => returnToSearch(true));
+    $("prev-jd").addEventListener("click", () => {
+      showOption(activeIndex - 1, true);
+      if ($("prev-jd").disabled) $("next-jd").focus({ preventScroll: true });
+    });
+    $("next-jd").addEventListener("click", () => {
+      showOption(activeIndex + 1, true);
+      if ($("next-jd").disabled) $("prev-jd").focus({ preventScroll: true });
     });
 
-    $("jd-form").addEventListener("submit", async event => {
+    $("edit-jd").addEventListener("submit", async event => {
       event.preventDefault();
-      if (busy) return;
-      const requirement = input.value.trim();
-      if (!requirement) {
-        showError("Enter a role or project requirement.");
+      if (!editing || saving) return;
+      const parts = (id, delimiter) => $(id).value.split(delimiter).map(value => value.trim()).filter(Boolean);
+      const body = {
+        role_title: $("edit-title").value.trim(),
+        job_description: $("edit-description").value.trim(),
+        service_category: $("edit-category").value.trim(),
+        experience_tier: $("edit-tier").value,
+        key_responsibilities: parts("edit-responsibilities", /\r?\n/),
+        required_skills: parts("edit-required", ","),
+        inferred_skills: parts("edit-inferred", ","),
+      };
+      if (!body.role_title || !body.job_description) {
+        showEditError("Enter a job title and description.");
         return;
       }
+      const controls = Array.from($("edit-jd").elements);
+      saving = true;
+      updateOptionControls();
+      showEditError();
+      controls.forEach(el => { el.disabled = true; });
+      $("save-jd").textContent = "Refreshing matches…";
+      $("paper").setAttribute("aria-busy", "true");
+      try {
+        const data = await requestJSON("/api/jd/rematch", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        }, "Couldn’t refresh matches. Your edits are still here.");
+        if (!Array.isArray(data.matches)) throw new Error("The server did not return a candidate list.");
+        const option = options[activeIndex];
+        option.jd = { ...option.jd, ...body, about_the_role: body.job_description };
+        if (body.role_title !== currentJD.role_title || body.job_description !== descriptionOf(currentJD)
+          || JSON.stringify(body.key_responsibilities) !== JSON.stringify(currentJD.key_responsibilities || [])) {
+          delete option.jd.timeline;
+        }
+        Object.assign(option, { edited: true, matches: data.matches,
+          match_status: data.match_status, match_message: data.match_message });
+        setEditing(false);
+        showOption(activeIndex, true);
+      } catch (error) {
+        showEditError(error instanceof TypeError ? "Couldn’t reach the server. Your edits are still here." : error.message);
+      } finally {
+        saving = false;
+        controls.forEach(el => { el.disabled = false; });
+        $("save-jd").textContent = "Save and refresh matches";
+        $("paper").setAttribute("aria-busy", "false");
+        updateOptionControls();
+        if (!editing) $("edit").focus({ preventScroll: true });
+      }
+    });
 
+    $("open-sources").addEventListener("click", () => { renderSources(); $("source-pane").showModal(); });
+    $("close-sources").addEventListener("click", () => $("source-pane").close());
+    $("source-pane").addEventListener("close", () => { $("source-token").value = ""; });
+    $("source-form").addEventListener("submit", event => {
+      event.preventDefault();
+      sourceToken = $("source-token").value.trim();
+      $("source-token").value = "";
+      renderSources();
+      $("source-status").textContent = sourceToken
+        ? "Token set. Close this pane and start a new search to request source records."
+        : "Enter an authorized token.";
+    });
+    $("clear-sources").addEventListener("click", () => {
+      sourceToken = "";
+      $("source-token").value = "";
+      options.forEach(option => { delete option.source_record; });
+      renderSources();
+    });
+
+    async function generate(requirement, fromURL = false) {
+      if (busy) return;
+      if (!requirement || requirement.length > 4000) {
+        showError("Enter a role or project requirement of at most 4,000 characters.");
+        return;
+      }
+      const page = new URL(location.href);
+      page.searchParams.set("keyword", requirement);
+      history.replaceState(history.state, "", page);
       setBusy(true);
+      updateOptionControls();
       showError();
       $("empty").hidden = false;
       $("result").hidden = true;
-      $("status").textContent = "Generating job description and checking availability.";
-
+      $("status").textContent = "Generating job descriptions and checking availability.";
       try {
-        const response = await fetch("/api/jd", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requirement }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.jd) {
-          throw new Error(typeof payload.detail === "string"
-            ? payload.detail
-            : "Couldn’t generate your job description. Please try again.");
+        const headers = {};
+        if (sourceToken) headers["X-Source-Review-Token"] = sourceToken;
+        const endpoint = fromURL ? `/api/jd?${new URLSearchParams({ keyword: requirement })}` : "/api/jd";
+        const init = { method: fromURL ? "GET" : "POST", headers };
+        if (!fromURL) {
+          headers["Content-Type"] = "application/json";
+          init.body = JSON.stringify({ requirement });
         }
-
-        currentJD = payload.jd;
-        renderJD(currentJD);
-        renderMatches(Array.isArray(payload.matches) ? payload.matches : [], payload.match_status);
-        showResults(payload.match_status === "ready" && currentMatches.length > 0);
-        $("status").textContent = currentMatches.length
-          ? `Job description ready. ${currentMatches.length} matching profiles.`
-          : "Job description ready. See the Top Matches panel for availability.";
+        const payload = await requestJSON(endpoint, init, "Couldn’t generate your job description. Please try again.");
+        const data = Array.isArray(payload.jd_options) && payload.jd_options.length ? payload.jd_options : [payload];
+        const incoming = data.filter(option => option?.jd).map(option => ({
+          ...option, matches: Array.isArray(option.matches) ? option.matches : [],
+        }));
+        if (!incoming.length) throw new Error("The server didn’t return a job description.");
+        options = incoming;
+        lastSearch = { requirement, fromURL };
+        showOption(0);
+        showResults(true);
       } catch (error) {
-        $("empty").hidden = Boolean(currentJD);
-        $("result").hidden = !currentJD;
-        showError(error instanceof TypeError
-          ? "Couldn’t reach FastAPI. Check that the server is running and try again."
-          : error.message);
+        $("empty").hidden = false;
+        $("result").hidden = true;
+        showError(error instanceof TypeError ? "Couldn’t reach the server. Please try again." : error.message);
         $("error").scrollIntoView({ block: "nearest" });
         $("status").textContent = "";
       } finally {
         setBusy(false);
+        updateOptionControls();
       }
+    }
+
+    $("retry-matches").addEventListener("click", async () => {
+      const option = options[activeIndex];
+      if (!option || !lastSearch || busy || editing || saving) return;
+      if (!option.edited) {
+        const { requirement, fromURL } = lastSearch;
+        if (options.some(item => item.edited)) return beginEdit();
+        returnToSearch(false, false);
+        await generate(requirement, fromURL);
+      } else {
+        beginEdit();
+        $("edit-jd").requestSubmit();
+      }
+    });
+
+    $("jd-form").addEventListener("submit", event => {
+      event.preventDefault();
+      generate(input.value.trim());
     });
 
     $("copy").addEventListener("click", async () => {
@@ -709,6 +999,11 @@
       $("trial-dialog").showModal();
     });
 
+    const keyword = pageParams.get("keyword")?.trim();
+    if (keyword) {
+      input.value = keyword.slice(0, 4000);
+      generate(keyword, true);
+    }
     syncInput();
   </script>
 </body>

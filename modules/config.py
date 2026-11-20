@@ -35,7 +35,7 @@ class AppConfig:
     # Matching & Budget Tiers
     budget_low_max_yoe: float = float(os.getenv("BUDGET_LOW_MAX_YOE", "3.0"))
     budget_mid_max_yoe: float = float(os.getenv("BUDGET_MID_MAX_YOE", "8.0"))
-    top_matches_limit: int = int(os.getenv("TOP_MATCHES_LIMIT", "3"))
-
+    top_matches_limit: int = int(os.getenv("TOP_MATCHES_LIMIT", "5"))
+    source_review_token: str = os.getenv("SOURCE_REVIEW_TOKEN", "").strip()
 
 config = AppConfig()
