@@ -253,6 +253,15 @@
       .match-footer { padding-block: 6px; }
       .match-footer .primary { min-height: 38px; }
     }
+    .workspace.keyword-preview {
+      grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+      grid-template-areas: "jd";
+    }
+    .keyword-preview .jd-pane > .pane-inner > :not(.paper) { display: none; }
+    .keyword-preview .jd-pane { display: grid; place-items: safe center; }
+    .keyword-preview .jd-pane .pane-inner { width: min(100%, 720px); }
+    .keyword-preview .paper { margin-top: 0; }
+    .keyword-preview .empty p.error { color: var(--danger); }
     @media (max-width: 530px) { .badge { display: none; } }
     @media (orientation: portrait) and (max-height: 780px) { .examples { display: none; } }
     @media (prefers-reduced-motion: reduce) {
@@ -343,6 +352,11 @@
             <div class="doc-icon" aria-hidden="true"><svg><use href="#icon-doc"/></svg></div>
             <h3 id="empty-title">Your draft will appear here</h3>
             <p id="empty-copy">Add your requirements to generate a role overview, responsibilities, and skills.</p>
+            <p id="keyword-error" class="error" role="alert" hidden></p>
+            <div id="keyword-recovery" class="row" hidden>
+              <button id="keyword-retry" type="button" class="small">Try again</button>
+              <button id="keyword-manual" type="button" class="small">Enter requirements manually</button>
+            </div>
           </div>
           <div class="result" id="result" hidden>
             <div class="row result-bar">
@@ -664,6 +678,7 @@
       const oldPosition = jdPane.getBoundingClientRect();
       $("requirements-pane").hidden = true;
       matchesPane.hidden = false;
+      workspace.classList.remove("keyword-preview");
       workspace.classList.add("results");
       $("jd-step").textContent = "DRAFT";
       $("empty").hidden = true;
@@ -703,7 +718,9 @@
     }
 
     function showRequirements(focus = true) {
-      workspace.classList.remove("results");
+      workspace.classList.remove("results", "keyword-preview");
+      showKeywordError();
+      setBusy(false);
       $("requirements-pane").hidden = false;
       matchesPane.hidden = true;
       selected.clear();
@@ -902,10 +919,29 @@
       renderSources();
     });
 
+    function showKeywordError(message = "", canRetry = true) {
+      $("keyword-error").textContent = message;
+      $("keyword-error").hidden = !message;
+      $("keyword-recovery").hidden = !message;
+      $("keyword-retry").hidden = !canRetry;
+      $("empty-copy").hidden = Boolean(message);
+      if (message) $("empty-title").textContent = "Couldn’t create your draft";
+    }
+
+    $("keyword-retry").addEventListener("click", () => {
+      generate(new URLSearchParams(location.search).get("keyword")?.trim(), true);
+    });
+    $("keyword-manual").addEventListener("click", () => returnToSearch(true));
+
     async function generate(requirement, fromURL = false) {
       if (busy) return;
+      workspace.classList.toggle("keyword-preview", fromURL);
+      $("requirements-pane").hidden = fromURL;
+      showKeywordError();
       if (!requirement || requirement.length > 4000) {
-        showError("Enter a role or project requirement of at most 4,000 characters.");
+        const message = "Enter a role or project requirement of at most 4,000 characters.";
+        if (fromURL) showKeywordError(message, false);
+        else showError(message);
         return;
       }
       const page = new URL(location.href);
@@ -939,11 +975,18 @@
       } catch (error) {
         $("empty").hidden = false;
         $("result").hidden = true;
-        showError(error instanceof TypeError ? "Couldn’t reach the server. Please try again." : error.message);
-        $("error").scrollIntoView({ block: "nearest" });
+        const message = error instanceof TypeError ? "Couldn’t reach the server. Please try again." : error.message;
+        if (fromURL) showKeywordError(message);
+        else {
+          showError(message);
+          $("error").scrollIntoView({ block: "nearest" });
+        }
         $("status").textContent = "";
       } finally {
         setBusy(false);
+        if (fromURL && !$("keyword-error").hidden) {
+          $("empty-title").textContent = "Couldn’t create your draft";
+        }
         updateOptionControls();
       }
     }
@@ -1000,10 +1043,7 @@
     });
 
     const keyword = pageParams.get("keyword")?.trim();
-    if (keyword) {
-      input.value = keyword.slice(0, 4000);
-      generate(keyword, true);
-    }
+    if (keyword) generate(keyword, true);
     syncInput();
   </script>
 </body>
