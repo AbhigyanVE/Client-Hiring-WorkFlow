@@ -302,7 +302,7 @@
     </div>
     <div class="top-right">
       <span class="badge">Job Description Builder</span>
-      <span class="version">version 2.1</span>
+      <span class="version">version 2.2</span>
     </div>
   </header>
 
@@ -420,9 +420,7 @@
           </div>
         </div>
       </div>
-      <footer class="match-footer" id="trial-footer" hidden>
-        <button id="trial" class="primary" type="button" disabled>Preview free trial (0)</button>
-      </footer>
+    
     </section>
   </main>
   <aside class="source-rail" aria-label="Internal JD sources">
@@ -433,13 +431,6 @@
   </aside>
 
   <div id="status" class="sr-only" role="status"></div>
-  <dialog id="trial-dialog" aria-labelledby="trial-title">
-    <h2 id="trial-title">Free trial preview</h2>
-    <p id="trial-summary"></p>
-    <ul id="trial-people"></ul>
-    <p class="notice">No booking was made and no request was sent.</p>
-    <form method="dialog"><button type="submit" class="primary">Close</button></form>
-  </dialog>
 
   <dialog class="source-pane" id="source-pane" aria-labelledby="source-heading">
     <header class="row">
@@ -469,7 +460,6 @@
     const matchesPane = $("matches-pane");
     const examples = Array.from(document.querySelectorAll("[data-example]"));
     const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
-    const selected = new Set();
     let currentJD = null;
     let currentMatches = [];
     let busy = false;
@@ -586,12 +576,6 @@
       return lines.join("\n") + "\n";
     }
 
-    function updateTrial() {
-      const count = selected.size;
-      $("trial").textContent = `Preview free trial (${count})`;
-      $("trial").disabled = count === 0 || editing || saving || busy;
-    }
-
     function renderCard(person, index) {
       const card = node("article", "", "card");
       const initials = person.name.trim().split(/\s+/).slice(0, 2)
@@ -637,19 +621,11 @@
       const hasRate = Number.isFinite(hourly) && hourly > 0;
       const rate = node("strong", hasRate ? `$${hourly}/hr` : "Rate not provided", hasRate ? "rate" : "rate missing");
 
-      const button = node("button", "Select", "small select");
+      const button = node("button", "Start free trial", "small select");
       button.type = "button";
-      button.setAttribute("aria-label", `Select ${person.name}`);
-      button.setAttribute("aria-pressed", "false");
+      button.setAttribute("aria-label", `Start free trial for ${person.name}`);
       button.addEventListener("click", () => {
-        const isSelected = !selected.has(person.id);
-        if (isSelected) selected.add(person.id);
-        else selected.delete(person.id);
-        card.classList.toggle("selected", isSelected);
-        button.textContent = isSelected ? "✓ Selected" : "Select";
-        button.setAttribute("aria-pressed", String(isSelected));
-        updateTrial();
-        $("status").textContent = `${selected.size} selected.`;
+        window.location.assign("https://trials.virtualemployee.com/trial-setup");
       });
 
       bottom.append(review, rate, button);
@@ -659,19 +635,16 @@
     }
 
     function renderMatches(matches, matchStatus, message) {
-      selected.clear();
       currentMatches = matches;
       const hasMatches = matches.length > 0;
       $("cards").replaceChildren(...matches.map(renderCard));
       $("match-disclaimer").hidden = !hasMatches;
-      $("trial-footer").hidden = !hasMatches;
       $("match-notice").hidden = hasMatches;
       $("match-contact").hidden = hasMatches || matchStatus !== "no_matches";
       $("retry-matches").hidden = hasMatches || matchStatus !== "unavailable";
       $("match-notice").textContent = matchStatus === "no_matches"
         ? (clean(message) || "No available profiles match this job description right now.")
         : "We couldn’t verify availability right now. Your job description is still available.";
-      updateTrial();
     }
 
     function showResults(revealMatches) {
@@ -723,8 +696,6 @@
       setBusy(false);
       $("requirements-pane").hidden = false;
       matchesPane.hidden = true;
-      selected.clear();
-      updateTrial();
       $("jd-step").textContent = "PREVIEW";
       $("empty").hidden = false;
       $("result").hidden = true;
@@ -765,7 +736,6 @@
       $("prev-jd").disabled = locked || activeIndex === 0;
       $("next-jd").disabled = locked || activeIndex >= options.length - 1;
       for (const id of ["edit", "copy", "download", "new-search", "retry-matches", "open-sources"]) $(id).disabled = locked;
-      $("trial").disabled = locked || selected.size === 0;
       $("cards").querySelectorAll("button").forEach(button => { button.disabled = locked; });
       matchesPane.setAttribute("aria-busy", String(saving));
     }
@@ -1032,14 +1002,6 @@
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    });
-
-    $("trial").addEventListener("click", () => {
-      const people = currentMatches.filter(person => selected.has(person.id));
-      if (!people.length) return;
-      $("trial-summary").textContent = `Selected ${people.length} ${people.length === 1 ? "person" : "people"}:`;
-      $("trial-people").replaceChildren(...people.map(person => node("li", person.name)));
-      $("trial-dialog").showModal();
     });
 
     const keyword = pageParams.get("keyword")?.trim();
